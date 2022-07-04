@@ -281,10 +281,19 @@ composite JSON value.
                     l2src[lid].add(src.id)
 
         counts = Counts()
-        datasets = {
-            p.stem: (p.resolve(), yaml.load(p.read_text(encoding='utf8'), yaml.CLoader))
-            for p in walk(self.raw_dir / 'metadata', mode='files')
-            if p.suffix == '.yaml' and p.parent.name != 'Definitions'}
+        datasets = dict()
+        for p in walk(self.raw_dir / 'metadata', mode='files'):
+          if p.suffix == '.yaml' and p.parent.name != 'Definitions':
+            try:
+              datasets[p.stem] = (p.resolve(), yaml.load(p.read_text(encoding='utf8'), yaml.CLoader))
+            except Exception as e:
+              print(f"Error loading {p.stem}")
+              raise e
+
+        # datasets = {
+        #     p.stem: (p.resolve(), yaml.load(p.read_text(encoding='utf8'), yaml.CLoader))
+        #     for p in walk(self.raw_dir / 'metadata', mode='files')
+        #     if p.suffix == '.yaml' and p.parent.name != 'Definitions'}
         assert len(datasets) == 46
 
         parameters = []
