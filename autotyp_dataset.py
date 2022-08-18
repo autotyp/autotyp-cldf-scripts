@@ -248,7 +248,7 @@ composite JSON value.
             'MorphemeClasses',
             'GrammaticalMarkers',
             'LocusOfMarkingPerMicrorelation',
-            'VerbSynthesis',
+            'MaximallyInflectedVerbSynthesis',
             'DefaultLocusOfMarkingPerMacrorelation',
             # GrammaticalRelations
             'PredicateClasses',
