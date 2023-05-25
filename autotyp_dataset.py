@@ -243,27 +243,45 @@ We can meaningfully only split datasets with no multiples per language into indi
 I.e. for the ones listed below, each autotyp "record" must be converted to **one**
 composite JSON value.
         """
-        unitsets = [
+        unitsets = {
             # Morphology:
-            'MorphemeClasses',
-            'GrammaticalMarkers',
-            'LocusOfMarkingPerMicrorelation',
-            'MaximallyInflectedVerbSynthesis',
-            'DefaultLocusOfMarkingPerMacrorelation',
+            'MorphemeClasses': None,
+            'GrammaticalMarkers': None,
+            'LocusOfMarkingPerMicrorelation': None,
+            'MaximallyInflectedVerbSynthesis': (
+                [  # Nested variables:
+                    "VerbInflectionExponenceType",
+                    "VerbInflectionMaxCategoryCount",
+                    "VerbInflectionMaxCategorySansAgreementCount",
+                    "VerbInflectionMaxFormativeCount",
+                    "VerbHasBipartiteStem",
+                    "VerbIsSyntacticallyCoherent",
+                    "VerbIsProsodicallyCoherent",
+                    "VerbProsodicCoherencyNotes",
+                    "VerbIsPhonologicallyCoherent",
+                    "VerbHasAnyIncorporation",
+                    "VerbHasNounIncorporation",
+                    "VerbHasVerbIncorporation",
+                    "VerbHasNounOrVerbIncorporation",
+                ],
+                # Condition for value inclusion:
+                lambda obj: obj["IsVerbInflectionSurveyComplete"] and obj["IsVerbAgreementSurveyComplete"],
+            ),
+            'DefaultLocusOfMarkingPerMacrorelation': None,
             # GrammaticalRelations
-            'PredicateClasses',
-            'GrammaticalRelations',
-            'GrammaticalRelationsRaw',
-            'Alignment',
+            'PredicateClasses': None,
+            'GrammaticalRelations': None,
+            'GrammaticalRelationsRaw': None,
+            'Alignment': None,
             # PerLanguageSummaries
-            'NPStructurePresence',
+            'NPStructurePresence': None,
             # Word
-            'WordDomains',
+            'WordDomains': None,
             # NP
-            'NPStructure',
+            'NPStructure': None,
             # Sentence
-            'ClauseLinkage',
-        ]
+            'ClauseLinkage': None,
+        }
 
         # set the global root so that Parameter can correctly find the data
         # global global_root_dir
@@ -296,9 +314,12 @@ composite JSON value.
         #     if p.suffix == '.yaml' and p.parent.name != 'Definitions'}
         assert len(datasets) == 46
 
-        parameters = []
-        for i, ((ds, var), rows) in enumerate(itertools.groupby(
-                self.raw_dir.read_csv('variables_overview.csv', dicts=True),
+        parameters, pid = [], 0
+        variables = collections.OrderedDict([
+            ((r['dataset'], r['variable']), r)
+            for r in self.raw_dir.read_csv('variables_overview.csv', dicts=True)])
+        for pid, ((ds, var), rows) in enumerate(itertools.groupby(
+                variables.values(),
                 lambda r: (r['dataset'], None if r['dataset'] in unitsets else r['variable'].split('$')[0]),
         ), start=1):
             if ds != 'Register' and (var in ['LID', 'Language', 'Glottocode']):
@@ -306,7 +327,7 @@ composite JSON value.
             rows = list(rows)
             assert ds in datasets
             datasets[ds][1]['dataset_kind'] = rows[0]['dataset_kind']
-            parameters.append(Parameter(id=i, name=var or ds, vars=rows, dataset=datasets[ds], counts=counts, unitset=var is None, raw_dir = self.raw_dir))
+            parameters.append(Parameter(id=pid, name=var or ds, vars=rows, dataset=datasets[ds], counts=counts, unitset=var is None, raw_dir = self.raw_dir))
 
         fmap = {
             'LID': 'ID',
@@ -325,7 +346,6 @@ composite JSON value.
         args.writer.cldf.add_component(
             'ParameterTable', 'module', 'submodule', 'kind', 'datatype',
             {"name": 'dim', "datatype": "integer"},
-            {"name": "typespec", "datatype": "json"},
             {"name": "unitset", "datatype": "boolean"},
             {"name": "multivalued", "datatype": "boolean"},
             {"name": "dataset", "propertyUrl": "http://cldf.clld.org/v1.0/terms.rdf#contributionReference"}
@@ -360,7 +380,7 @@ composite JSON value.
                 kind=p.md['kind'],
                 datatype=p.md['data'],
                 dim=len(p.fields) if p.datatype == 'table' else 1,
-                typespec=DTYPES.get(p.datatype, p.datatype),
+                ColumnSpec=dict(datatype=DTYPES.get(p.datatype, p.datatype)),
                 multivalued=p.multivalued,
                 unitset=p.unitset,
             ))
@@ -368,5 +388,39 @@ composite JSON value.
             for code in p.iter_codes():
                 args.writer.objects['CodeTable'].append(code)
 
+            subvars, condition = unitsets.get(p.name), None
+            idmap = {}
+            if subvars:
+                subvars, condition = subvars
+                for subvar in subvars:
+                    md = variables[p.name, subvar]
+                    pid += 1
+                    idmap[subvar] = str(pid)
+                    args.writer.objects['ParameterTable'].append(dict(
+                        ID=str(pid),
+                        Name='{}_{}'.format(p.name, subvar),
+                        #Description=desc,
+                        module=md['modules'],
+                        dataset=p.name,
+                        kind=md['kind'],
+                        datatype=md['data'],
+                        dim=1,
+                        ColumnSpec=dict(datatype=DTYPES.get(md['data'], md['data'])),
+                        multivalued=False,
+                        unitset=False,
+                    ))
+
             for val in p.iter_values():
                 args.writer.objects['ValueTable'].append(val)
+                if subvars:
+                    v = json.loads(val['Value'])
+                    if condition(v):
+                        for subvar in subvars:
+                            if subvar in v:
+                                args.writer.objects['ValueTable'].append(dict(
+                                    ID=str(counts.inc('vid')),
+                                    Language_ID=val['Language_ID'],
+                                    Parameter_ID=idmap[subvar],
+                                    Value=v[subvar],
+                                    Code_ID=None,
+                                ))
